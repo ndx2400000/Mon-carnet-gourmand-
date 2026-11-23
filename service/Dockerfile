@@ -4,5 +4,5 @@ WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
-ENV WHISPER_MODEL=small DATA_DIR=/data
+ENV DATA_DIR=/data
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
