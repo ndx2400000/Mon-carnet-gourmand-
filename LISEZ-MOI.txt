@@ -1,0 +1,8 @@
+MON CARNET GOURMAND — prototype PWA
+
+1. Pour un essai sur ordinateur : ouvrez index.html dans votre navigateur. Les fonctions de recettes, recherche, favoris, import et export peuvent fonctionner localement.
+2. Pour installer l'application sur Android et disposer du cache hors ligne, publiez le contenu du dossier sur un hébergement HTTPS (par exemple GitHub Pages ou Netlify). Ouvrez ensuite l'adresse dans Chrome puis choisissez « Ajouter à l'écran d'accueil » ou « Installer ».
+3. Ouvrez l'application une première fois avec Internet avant de l'utiliser hors ligne. Les liens externes TikTok/Goomi nécessitent Internet.
+4. Les données sont enregistrées dans le navigateur de chaque appareil, sans synchronisation automatique. Utilisez « Sauvegardes » pour transférer vos recettes par fichier JSON et conservez une copie en lieu sûr.
+5. Pour les 150 recettes, préférez une importation groupée structurée après vérification des sources. L'application n'extrait pas automatiquement les vidéos TikTok ou les contenus Goomi.
+6. Les photos sont compressées et conservées localement. Le stockage navigateur est limité : exportez souvent vos sauvegardes.
