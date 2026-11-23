@@ -87,23 +87,40 @@ def read_video_text(video_path, duration):
         print('OCR frame extraction failed:',type(e).__name__,flush=True)
         return '',None
     seen=set();lines=[];photo=None
-    for frame in sorted(frames_dir.glob('frame_*.jpg')):
+    frames=sorted(frames_dir.glob('frame_*.jpg'))
+    stats={'frames':len(frames),'ocr_success':0,'ocr_failed':0,'ocr_timeout':0,
+           'ocr_missing':0,'ocr_raw_chars':0,'ocr_chars':0}
+    first_error=''
+    for frame in frames:
         if photo is None:photo=frame
         try:
             result=subprocess.run(['tesseract',str(frame),'stdout','-l','fra+eng','--psm','11'],
                                   capture_output=True,text=True,timeout=8)
-            if result.returncode!=0:continue
+            if result.returncode!=0:
+                stats['ocr_failed']+=1
+                if not first_error:
+                    first_error='returncode='+str(result.returncode)+' stderr='+result.stderr.strip()[:350]
+                continue
+            stats['ocr_success']+=1
+            stats['ocr_raw_chars']+=len(result.stdout)
             for raw in result.stdout.splitlines():
                 line=' '.join(raw.split()).strip()
                 key=re.sub(r'[^\w]+','',line.casefold())
                 if len(key)<4 or key in seen:continue
                 seen.add(key);lines.append(line)
                 if len(lines)>=140:break
-        except (subprocess.TimeoutExpired,FileNotFoundError):
-            continue
+        except subprocess.TimeoutExpired:
+            stats['ocr_timeout']+=1
+            if not first_error:first_error='Tesseract timeout (>8s)'
+        except FileNotFoundError:
+            stats['ocr_missing']+=1
+            if not first_error:first_error='Tesseract executable not found'
         if len(lines)>=140:break
     output='\n'.join(lines)[:9000]
-    print('TikTok OCR diagnostic:',json.dumps({'frames':len(list(frames_dir.glob('frame_*.jpg'))),'ocr_chars':len(output),'ocr_preview':output[:180]},ensure_ascii=False),flush=True)
+    stats['ocr_chars']=len(output)
+    stats['first_error']=first_error
+    # Logs contain only counts and technical errors, never the recipe text or API key.
+    print('TikTok OCR diagnostic:',json.dumps(stats,ensure_ascii=False),flush=True)
     return output,photo
 
 def groq_recipe(description,transcript,title,screen_text=""):
