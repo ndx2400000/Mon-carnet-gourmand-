@@ -61,7 +61,7 @@ def groq_transcribe(audio_path):
     if mp3.stat().st_size>24_000_000:raise HTTPException(413,'Audio trop volumineux pour la transcription.')
     try:
         with mp3.open('rb') as f:
-            resp=requests.post('https://api.groq.com/openai/v1/audio/transcriptions',headers={'Authorization':'Bearer '+key},files={'file':('recette.mp3',f,'audio/mpeg')},data={'model':os.getenv('GROQ_WHISPER_MODEL','whisper-large-v3-turbo'),'language':'fr','response_format':'json'},timeout=120)
+            resp=requests.post('https://api.groq.com/openai/v1/audio/transcriptions',headers={'Authorization':'Bearer '+key},files={'file':('recette.mp3',f,'audio/mpeg')},data={'model':os.getenv('GROQ_WHISPER_MODEL','whisper-large-v3'),'language':'fr','response_format':'json','prompt':'Recette de cuisine en français : ingrédients, quantités, préparation, cuisson.'},timeout=120)
         if not resp.ok:raise HTTPException(502,'Groq transcription : '+str(resp.status_code)+' (vérifie clé et quotas).')
         return (resp.json().get('text') or '').strip()
     except requests.RequestException as e:raise HTTPException(504,'Service de transcription temporairement inaccessible.') from e
@@ -100,7 +100,7 @@ def extract(payload:ExtractPayload,authorization:str|None=Header(default=None)):
     parsed=urlparse(payload.url);host=(parsed.hostname or '').lower()
     if parsed.scheme!='https' or not (host=='tiktok.com' or host.endswith('.tiktok.com')):raise HTTPException(400,'Lien TikTok HTTPS invalide.')
     with tempfile.TemporaryDirectory() as folder:
-        opts={'format':'bestaudio/best','outtmpl':str(Path(folder)/'video.%(ext)s'),'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':25,'retries':1,'match_filter':yt_dlp.utils.match_filter_func('duration <= 600')}
+        opts={'format':'best[ext=mp4]/best','outtmpl':str(Path(folder)/'video.%(ext)s'),'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':25,'retries':1,'match_filter':yt_dlp.utils.match_filter_func('duration <= 600')}
         try:
             with yt_dlp.YoutubeDL(opts) as dl:info=dl.extract_info(payload.url,download=True)
         except Exception as e:raise HTTPException(422,'Vidéo TikTok inaccessible ou téléchargement refusé.') from e
@@ -109,7 +109,10 @@ def extract(payload:ExtractPayload,authorization:str|None=Header(default=None)):
         files=[f for f in Path(folder).glob('video.*') if f.is_file()]
         if not files:
             raise HTTPException(422,'Aucun fichier audio téléchargé depuis TikTok.')
-        transcript=groq_transcribe(files[0])
+        # Utilise le fichier vidéo téléchargé (avec sa piste sonore intégrée).
+        media=max(files,key=lambda p:p.stat().st_size)
+        transcript=groq_transcribe(media)
+        print('TikTok audio diagnostic:',json.dumps({'format_id':info.get('format_id'),'ext':media.suffix,'duration':info.get('duration'),'audio_codec':info.get('acodec'),'transcript_length':len(transcript),'transcript_preview':transcript[:180]},ensure_ascii=False),flush=True)
         recipe=groq_recipe(description,transcript,title)
         thumbnail=info.get('thumbnail') or ''
         if thumbnail.startswith('https://'):
