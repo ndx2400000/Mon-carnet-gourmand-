@@ -68,60 +68,76 @@ def groq_transcribe(audio_path):
 
 
 def read_video_text(video_path, duration):
-    """Read on-screen text from a bounded sample of frames; no external OCR API."""
-    frames_dir=Path(video_path).parent/'ocr_frames'
+    """OCR économe en CPU pour Render Free ; diagnostic sans divulguer le texte."""
+    import time
+    frames_dir = Path(video_path).parent / 'ocr_frames'
     frames_dir.mkdir(exist_ok=True)
     try:
-        seconds=float(duration or 0)
+        seconds = float(duration or 0)
     except (TypeError, ValueError):
-        seconds=0
-    # At most 24 frames per video, avoiding excessive CPU on Render Free.
-    interval=max(2.5, seconds/24) if seconds>0 else 5.0
-    pattern=str(frames_dir/'frame_%03d.jpg')
+        seconds = 0
+    # Maximum 12 captures : on répartit les images sur la durée connue.
+    interval = max(1.0, seconds / 12) if seconds > 0 else 4.0
+    pattern = str(frames_dir / 'frame_%03d.jpg')
     try:
-        subprocess.run(['ffmpeg','-nostdin','-y','-loglevel','error','-i',str(video_path),
-                        '-vf',f'fps=1/{interval:.3f},scale=960:-2',
-                        '-frames:v','24','-q:v','4',pattern],
-                       check=True,timeout=100)
-    except (subprocess.CalledProcessError,subprocess.TimeoutExpired,FileNotFoundError) as e:
-        print('OCR frame extraction failed:',type(e).__name__,flush=True)
-        return '',None
-    seen=set();lines=[];photo=None
-    frames=sorted(frames_dir.glob('frame_*.jpg'))
-    stats={'frames':len(frames),'ocr_success':0,'ocr_failed':0,'ocr_timeout':0,
-           'ocr_missing':0,'ocr_raw_chars':0,'ocr_chars':0}
-    first_error=''
+        subprocess.run(
+            ['ffmpeg', '-nostdin', '-y', '-loglevel', 'error', '-i', str(video_path),
+             '-vf', f'fps=1/{interval:.3f},scale=640:-2,format=gray',
+             '-frames:v', '12', '-q:v', '5', pattern],
+            check=True, timeout=75)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print('OCR frame extraction failed:', type(e).__name__, flush=True)
+        return '', None
+    frames = sorted(frames_dir.glob('frame_*.jpg'))
+    photo = frames[0] if frames else None
+    stats = {'frames': len(frames), 'ocr_success': 0, 'ocr_failed': 0,
+             'ocr_timeout': 0, 'ocr_missing': 0, 'ocr_raw_chars': 0,
+             'ocr_chars': 0, 'first_error': ''}
+    seen, lines = set(), []
+    # Tesseract peut lancer de nombreux threads OpenMP : sur Render Free cela
+    # provoque des ralentissements massifs. Forcer un seul thread par processus.
+    env = os.environ.copy()
+    env['OMP_THREAD_LIMIT'] = '1'
+    started = time.monotonic()
     for frame in frames:
-        if photo is None:photo=frame
+        if time.monotonic() - started > 65:
+            stats['first_error'] = stats['first_error'] or 'Budget OCR total atteint (65s)'
+            break
         try:
-            result=subprocess.run(['tesseract',str(frame),'stdout','-l','fra+eng','--psm','11'],
-                                  capture_output=True,text=True,timeout=8)
-            if result.returncode!=0:
-                stats['ocr_failed']+=1
-                if not first_error:
-                    first_error='returncode='+str(result.returncode)+' stderr='+result.stderr.strip()[:350]
+            result = subprocess.run(
+                ['tesseract', str(frame), 'stdout', '-l', 'fra+eng', '--psm', '11'],
+                capture_output=True, text=True, timeout=12, env=env)
+            if result.returncode:
+                stats['ocr_failed'] += 1
+                if not stats['first_error']:
+                    stats['first_error'] = ('code=' + str(result.returncode) +
+                                            ' stderr=' + result.stderr.strip()[:220])
                 continue
-            stats['ocr_success']+=1
-            stats['ocr_raw_chars']+=len(result.stdout)
+            stats['ocr_success'] += 1
+            stats['ocr_raw_chars'] += len(result.stdout)
             for raw in result.stdout.splitlines():
-                line=' '.join(raw.split()).strip()
-                key=re.sub(r'[^\w]+','',line.casefold())
-                if len(key)<4 or key in seen:continue
-                seen.add(key);lines.append(line)
-                if len(lines)>=140:break
+                line = ' '.join(raw.split()).strip()
+                key = re.sub(r'[^\w]+', '', line.casefold())
+                if len(key) < 4 or key in seen:
+                    continue
+                seen.add(key)
+                lines.append(line)
+                if len(lines) >= 140:
+                    break
         except subprocess.TimeoutExpired:
-            stats['ocr_timeout']+=1
-            if not first_error:first_error='Tesseract timeout (>8s)'
+            stats['ocr_timeout'] += 1
+            if not stats['first_error']:
+                stats['first_error'] = 'Tesseract timeout (>12s)'
         except FileNotFoundError:
-            stats['ocr_missing']+=1
-            if not first_error:first_error='Tesseract executable not found'
-        if len(lines)>=140:break
-    output='\n'.join(lines)[:9000]
-    stats['ocr_chars']=len(output)
-    stats['first_error']=first_error
-    # Logs contain only counts and technical errors, never the recipe text or API key.
-    print('TikTok OCR diagnostic:',json.dumps(stats,ensure_ascii=False),flush=True)
-    return output,photo
+            stats['ocr_missing'] += 1
+            if not stats['first_error']:
+                stats['first_error'] = 'Tesseract introuvable'
+        if len(lines) >= 140:
+            break
+    output = '\n'.join(lines)[:9000]
+    stats['ocr_chars'] = len(output)
+    print('TikTok OCR diagnostic:', json.dumps(stats, ensure_ascii=False), flush=True)
+    return output, photo
 
 def groq_recipe(description,transcript,title,screen_text=""):
     key=os.getenv('GROQ_API_KEY','').strip()
