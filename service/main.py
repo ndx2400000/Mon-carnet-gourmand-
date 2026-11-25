@@ -142,7 +142,7 @@ def read_video_text(video_path, duration):
 def groq_recipe(description,transcript,title,screen_text=""):
     key=os.getenv('GROQ_API_KEY','').strip()
     if not key:raise HTTPException(503,'GROQ_API_KEY manquante.')
-    if not (description.strip() or transcript.strip() or screen_text.strip()):raise HTTPException(422,'Aucun texte de recette récupéré depuis TikTok.')
+    if not (description.strip() or transcript.strip() or screen_text.strip()):raise HTTPException(422,'Aucun texte de recette récupéré.')
     system=('Tu es un assistant culinaire rigoureux. Extrais une recette en français UNIQUEMENT à partir des informations fournies. '
             'Retourne uniquement un objet JSON avec les clés title, category, servings, prep, cook, rest, temp, ingredients, steps, notes. '
             'ingredients et steps sont des tableaux de chaînes. category est parmi Apéritifs, Entrées, Plats, Desserts, Goûters, Boulangerie, Boissons, Autres. '
@@ -171,12 +171,15 @@ def groq_recipe(description,transcript,title,screen_text=""):
 def extract(payload:ExtractPayload,authorization:str|None=Header(default=None)):
     auth(authorization)
     parsed=urlparse(payload.url);host=(parsed.hostname or '').lower()
-    if parsed.scheme!='https' or not (host=='tiktok.com' or host.endswith('.tiktok.com')):raise HTTPException(400,'Lien TikTok HTTPS invalide.')
+    if parsed.scheme!='https' or not host or parsed.username or parsed.password:raise HTTPException(400,'Lien HTTPS invalide.')
+    social=any(host==d or host.endswith('.'+d) for d in ('tiktok.com','instagram.com','facebook.com','fb.watch','youtube.com','youtu.be'))
+    if not social:
+        return extract_web(payload.url)
     with tempfile.TemporaryDirectory() as folder:
-        opts={'format':'best[ext=mp4]/best','outtmpl':str(Path(folder)/'video.%(ext)s'),'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':25,'retries':1,'match_filter':yt_dlp.utils.match_filter_func('duration <= 600')}
+        opts={'format':'best[ext=mp4][height<=720]/best[height<=720]/best','outtmpl':str(Path(folder)/'video.%(ext)s'),'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':25,'retries':1,'match_filter':yt_dlp.utils.match_filter_func('duration <= 600')}
         try:
             with yt_dlp.YoutubeDL(opts) as dl:info=dl.extract_info(payload.url,download=True)
-        except Exception as e:raise HTTPException(422,'Vidéo TikTok inaccessible ou téléchargement refusé.') from e
+        except Exception as e:raise HTTPException(422,'Vidéo inaccessible, privée ou téléchargement refusé.') from e
         description=(info.get('description') or '')[:8000]
         title=(info.get('title') or description.split('\n')[0] or '')[:120]
         files=[f for f in Path(folder).glob('video.*') if f.is_file()]
@@ -184,8 +187,13 @@ def extract(payload:ExtractPayload,authorization:str|None=Header(default=None)):
             raise HTTPException(422,'Aucun fichier audio téléchargé depuis TikTok.')
         # Utilise le fichier vidéo téléchargé (avec sa piste sonore intégrée).
         media=max(files,key=lambda p:p.stat().st_size)
-        transcript=groq_transcribe(media)
-        screen_text,frame_photo=read_video_text(media,info.get('duration'))
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            audio=pool.submit(groq_transcribe,media)
+            visual=pool.submit(read_video_text,media,info.get('duration'))
+            screen_text,frame_photo=visual.result()
+            try:transcript=audio.result()
+            except HTTPException:transcript='' 
         print('TikTok audio diagnostic:',json.dumps({'format_id':info.get('format_id'),'ext':media.suffix,'duration':info.get('duration'),'audio_codec':info.get('acodec'),'transcript_length':len(transcript),'transcript_preview':transcript[:180]},ensure_ascii=False),flush=True)
         recipe=groq_recipe(description,transcript,title,screen_text)
         thumbnail=info.get('thumbnail') or ''
@@ -208,3 +216,44 @@ def extract(payload:ExtractPayload,authorization:str|None=Header(default=None)):
                 recipe['photo']='data:image/jpeg;base64,'+base64.b64encode(out.getvalue()).decode()
             except Exception:pass
         return {'recipe':recipe,'warning':'Extraction automatique audio + texte à l’écran : vérifie les ingrédients, quantités et étapes.'}
+
+def extract_web(url):
+    # Structured recipe data only; reject private network destinations and redirects.
+    import socket, ipaddress
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin
+    for _ in range(5):
+        parsed=urlparse(url)
+        if parsed.scheme!='https' or parsed.username or parsed.password or parsed.port not in (None,443):raise HTTPException(400,'Adresse web non autorisée.')
+        try:
+            addresses=socket.getaddrinfo(parsed.hostname,443,type=socket.SOCK_STREAM)
+            if not addresses or any(not ipaddress.ip_address(a[4][0]).is_global for a in addresses):raise ValueError()
+        except (OSError,ValueError):raise HTTPException(400,'Adresse web non autorisée.')
+        try:
+            with requests.get(url,headers={'User-Agent':'Mozilla/5.0'},timeout=15,allow_redirects=False,stream=True) as response:
+                if response.is_redirect:
+                    url=urljoin(url,response.headers['Location']);continue
+                response.raise_for_status()
+                data=b''
+                for chunk in response.iter_content(65536):
+                    data+=chunk
+                    if len(data)>3000000:raise HTTPException(413,'Page trop volumineuse.')
+                break
+        except requests.RequestException:raise HTTPException(422,'Site inaccessible.')
+    else:raise HTTPException(422,'Trop de redirections.')
+    soup=BeautifulSoup(data,'html.parser')
+    def walk(x):
+        if isinstance(x,dict):
+            t=x.get('@type',[])
+            if t=='Recipe' or isinstance(t,list) and 'Recipe' in t:yield x
+            for v in x.values():yield from walk(v)
+        elif isinstance(x,list):
+            for v in x:yield from walk(v)
+    for tag in soup.select('script[type="application/ld+json"]'):
+        try:items=list(walk(json.loads(tag.string or tag.get_text())))
+        except (ValueError,TypeError):continue
+        if items:
+            r=items[0];recipe=groq_recipe(json.dumps(r,ensure_ascii=False)[:7000],'',str(r.get('name','Recette')));return {'recipe':recipe}
+    for tag in soup(['script','style','nav','footer','header']):tag.decompose()
+    article=soup.find('article') or soup.find('main') or soup
+    return {'recipe':groq_recipe(article.get_text(' ',strip=True)[:7000],'',soup.title.get_text(strip=True) if soup.title else 'Recette')}
