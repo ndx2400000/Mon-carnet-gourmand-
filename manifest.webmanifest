@@ -1,12 +1,12 @@
 {
   "name": "Mon Carnet Gourmand",
-  "short_name": "Mes Recettes",
+  "short_name": "Carnet Gourmand",
   "description": "Mon carnet personnel de recettes hors ligne",
   "lang": "fr",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#fff8f5",
-  "theme_color": "#a74765",
+  "background_color": "#fff8f4",
+  "theme_color": "#f8dce7",
   "icons": [
     {
       "src": "icon-192.png",
@@ -22,5 +22,15 @@
     }
   ],
   "id": "./",
-  "scope": "./"
+  "scope": "./",
+  "share_target": {
+    "action": "./index.html",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "shared_title",
+      "text": "shared_text",
+      "url": "shared_url"
+    }
+  }
 }
