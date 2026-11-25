@@ -1,4 +1,4 @@
-const CACHE = 'carnet-gourmand-v6';
+const CACHE = 'carnet-gourmand-v7';
 const ASSETS = ['./', './index.html', './app.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
