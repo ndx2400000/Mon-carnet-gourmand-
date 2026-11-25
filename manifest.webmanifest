@@ -1,30 +1,31 @@
+
 {
   "name": "Mon Carnet Gourmand",
   "short_name": "Carnet Gourmand",
   "description": "Mon carnet personnel de recettes hors ligne",
   "lang": "fr",
-  "start_url": "./",
+  "id": "/Mon-carnet-gourmand-/",
+  "start_url": "/Mon-carnet-gourmand-/",
+  "scope": "/Mon-carnet-gourmand-/",
   "display": "standalone",
   "background_color": "#fff8f4",
   "theme_color": "#f8dce7",
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "/Mon-carnet-gourmand-/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "icon-512.png",
+      "src": "/Mon-carnet-gourmand-/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ],
-  "id": "./",
-  "scope": "./",
   "share_target": {
-    "action": "./index.html",
+    "action": "/Mon-carnet-gourmand-/index.html",
     "method": "GET",
     "enctype": "application/x-www-form-urlencoded",
     "params": {
