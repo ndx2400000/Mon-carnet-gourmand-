@@ -147,7 +147,7 @@ def groq_recipe(description,transcript,title,screen_text=""):
     if not (description.strip() or transcript.strip() or screen_text.strip()):raise HTTPException(422,'Aucun texte de recette récupéré.')
     system=('Tu es un assistant culinaire rigoureux. Extrais une recette en français UNIQUEMENT à partir des informations fournies. '
             'Retourne uniquement un objet JSON avec les clés title, category, servings, prep, cook, rest, temp, ingredients, steps, notes. '
-            'ingredients et steps sont des tableaux de chaînes. category est parmi Apéritifs, Entrées, Plats, Desserts, Goûters, Boulangerie, Boissons, Autres. '
+            'ingredients et steps sont des tableaux de chaînes. Indique servings comme un nombre et une unité (ex. 6 personnes, 12 cookies) uniquement si la source le précise, sinon chaîne vide. Commence chaque ingrédient par sa quantité si connue, sans inventer de quantité. category est parmi Apéritifs, Entrées, Plats, Desserts, Goûters, Boulangerie, Boissons, Autres. '
             'N’invente JAMAIS de quantités, ingrédients, temps ou étapes manquants. '
             'Le texte OCR est une suite de fragments extraits d’images, parfois répétés ou erronés : reconstruis uniquement les instructions culinaires explicites et ignore les textes sans rapport. '
             'Corrige les erreurs phonétiques évidentes selon le contexte culinaire, sans inventer. Ne transforme jamais une transcription incohérente en instructions certaines. Reformule clairement les étapes réellement décrites. Les autres champs sont des chaînes, vides si inconnus. '
