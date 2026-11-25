@@ -300,3 +300,28 @@ def extract_web(url):
     for tag in soup(['script','style','nav','footer','header']):tag.decompose()
     article=soup.find('article') or soup.find('main') or soup
     return {'recipe':groq_recipe(article.get_text(' ',strip=True)[:7000],'',soup.title.get_text(strip=True) if soup.title else 'Recette')}
+
+class SharePayload(BaseModel):
+    recipe:dict
+
+@app.post('/shares')
+def create_share(payload:SharePayload,authorization:str|None=Header(default=None)):
+    auth(authorization)
+    fields=('title','category','servings','prep','cook','rest','temp','ingredients','steps','notes','source','photo')
+    recipe={k:str(payload.recipe.get(k) or '') for k in fields}
+    if not recipe['title'] or not recipe['ingredients'] or not recipe['steps']:raise HTTPException(422,'Recette incomplète.')
+    raw=json.dumps(recipe,ensure_ascii=False)
+    if len(raw.encode())>3_000_000:raise HTTPException(413,'Fiche trop volumineuse.')
+    token=secrets.token_urlsafe(24)
+    with lock,sqlite3.connect(DB) as db:
+        db.execute('CREATE TABLE IF NOT EXISTS shares (token TEXT PRIMARY KEY, recipe TEXT NOT NULL)')
+        db.execute('INSERT INTO shares VALUES (?,?)',(token,raw))
+    return {'id':token}
+
+@app.get('/shares/{token}')
+def read_share(token:str):
+    with lock,sqlite3.connect(DB) as db:
+        db.execute('CREATE TABLE IF NOT EXISTS shares (token TEXT PRIMARY KEY, recipe TEXT NOT NULL)')
+        row=db.execute('SELECT recipe FROM shares WHERE token=?',(token,)).fetchone()
+    if not row:raise HTTPException(404,'Fiche indisponible.')
+    return {'recipe':json.loads(row[0])}
