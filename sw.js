@@ -1,5 +1,5 @@
-const CACHE = 'carnet-gourmand-v85';
-const ASSETS = ['./', './index.html', './app.js', './manifest.webmanifest', './deluxe.css', './biscotte.svg', './shared.html', './icon.svg', './icon-192.png', './icon-512.png'];
+const CACHE = 'carnet-gourmand-v86';
+const ASSETS = ['./', './index.html', './app.js', './portions.js', './manifest.webmanifest', './deluxe.css', './biscotte.svg', './shared.html', './icon.svg', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
@@ -16,5 +16,5 @@ self.addEventListener('fetch', event => {
     event.respondWith(fetch(request).catch(() => caches.match('./index.html')));
     return;
   }
-  event.respondWith(fetch(request).then(response=>{const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(request,copy));return response}).catch(()=>caches.match(request)));
+  event.respondWith(fetch(request).then(response=>{const copy=response.clone();caches.open(CACHE).then(cache=>response.ok ? cache.put(request,copy) : Promise.resolve());return response}).catch(()=>caches.match(request)));
 });
